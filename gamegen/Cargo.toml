@@ -1,0 +1,9 @@
+[package]
+name = "gamegen"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.75"
+shakmaty = "0.26.0"
+tokio = { version = "1.32.0", features = ["full"] }
