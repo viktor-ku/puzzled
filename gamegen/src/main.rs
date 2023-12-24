@@ -1,7 +1,9 @@
-use std::{borrow::BorrowMut, process::Stdio};
+use std::{borrow::BorrowMut, process::Stdio, env};
 
 use anyhow::Result;
+use dotenvy::dotenv;
 use shakmaty::{fen::Fen, uci::Uci, Chess, Position};
+use sqlx::{postgres::PgPoolOptions, Row, PgPool};
 use tokio::{
     io::{self, AsyncBufReadExt, AsyncWriteExt},
     process::Command,
@@ -140,6 +142,12 @@ async fn worker(mut broadcast: Broadcast) -> Result<()> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    dotenv()?;
+
+    let pool = PgPool::connect(&env::var("DATABASE_URL")?).await?;
+    sqlx::query("SELECT now()").execute(&pool).await?;
+    println!("Connection to db 🚀");
+
     let (tx, rx) = tokio::sync::broadcast::channel::<Message>(128);
 
     let stockfish_1 = tokio::spawn(stockfish((tx.clone(), rx)));

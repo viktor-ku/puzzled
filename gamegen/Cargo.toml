@@ -7,3 +7,5 @@ edition = "2021"
 anyhow = "1.0.75"
 shakmaty = "0.26.0"
 tokio = { version = "1.32.0", features = ["full"] }
+sqlx = { version = "0.7", features = [ "runtime-tokio", "tls-rustls", "postgres", "macros", "migrate", "uuid", "time", "json" ] }
+dotenvy = "0.15.7"

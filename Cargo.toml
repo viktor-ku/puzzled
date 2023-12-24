@@ -3,3 +3,6 @@ resolver = "2"
 members = [
   "gamegen",
 ]
+
+[profile.dev.package.sqlx-macros]
+opt-level = 3
