@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Error, Result, bail};
 use dotenvy::dotenv;
 use shakmaty::{fen::Fen, uci::Uci, Chess, Outcome, Position};
 use sqlx::{types::Uuid, PgPool};
@@ -129,10 +129,10 @@ pub enum Winner {
     Draw,
 }
 
-async fn db_save_moves(pool: &PgPool, moves: Vec<DbMove>) -> Result<()> {
-    let vec_nr: Vec<i16> = moves.iter().map(|x| x.nr as _).collect();
+async fn db_save_moves(pool: &PgPool, game_id: Uuid, moves: Vec<DbMove>) -> Result<()> {
+    let vec_nr: Vec<i16> = moves.iter().map(|x| x.nr).collect();
     let vec_uci: Vec<String> = moves.iter().map(|x| x.uci.to_string()).collect();
-    let vec_game: Vec<Uuid> = moves.iter().map(|x| x.game).collect();
+    let vec_game = [game_id].repeat(moves.len());
 
     sqlx::query!(
         r#"
@@ -161,6 +161,35 @@ RETURNING id
     .await?;
 
     Ok(rec.id)
+}
+
+async fn db_set_winner(pool: &PgPool, game_id: Uuid, outcome: Option<Outcome>) -> Result<()> {
+    let winner = outcome.map(|val| match val {
+        Outcome::Draw => 0,
+        Outcome::Decisive { winner } => match winner {
+            shakmaty::Color::White => 1,
+            shakmaty::Color::Black => -1,
+        },
+    });
+
+    match winner {
+        Some(winner) => {
+            sqlx::query!(
+                r#"
+UPDATE games
+    SET winner = $1
+    WHERE id = $2
+    "#,
+                winner,
+                game_id
+            )
+            .execute(pool)
+            .await?;
+        }
+        None => bail!("No winner yet?"),
+    };
+
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -198,10 +227,8 @@ impl Pgn {
 
 #[derive(Debug)]
 pub struct DbMove {
-    pub id: Uuid,
-    pub nr: u16,
+    pub nr: i16,
     pub uci: String,
-    pub game: Uuid,
 }
 
 async fn worker(pool: PgPool, mut broadcast: Broadcast) -> Result<()> {
@@ -222,20 +249,16 @@ async fn worker(pool: PgPool, mut broadcast: Broadcast) -> Result<()> {
         let m = uci.to_move(&chess)?;
 
         moves.push(DbMove {
-            id: Uuid::new_v4(),
             nr,
             uci: uci.to_string(),
-            game: game_id,
         });
+        nr += 1;
 
         chess.play_unchecked(&m);
-
-        nr += 1;
     }
 
-    println!("{:#?}", moves);
-
-    db_save_moves(&pool, moves).await?;
+    db_save_moves(&pool, game_id, moves).await?;
+    db_set_winner(&pool, game_id, chess.outcome()).await?;
 
     Ok(())
 }
