@@ -26,9 +26,13 @@ pub struct BestMove {
 }
 
 #[derive(Debug)]
+pub struct UciPayload {
+    pub response: oneshot::Sender<bool>,
+}
+
+#[derive(Debug)]
 pub enum StockfishCmd {
-    Uci,
-    Ready,
+    Uci(UciPayload),
 
     Kill,
 
@@ -52,14 +56,14 @@ async fn stockfish(mut stockfish_rx: mpsc::Receiver<StockfishCmd>) -> Result<()>
 
     while let Some(cmd) = stockfish_rx.recv().await {
         match cmd {
-            StockfishCmd::Uci => {
+            StockfishCmd::Uci(uci_payload) => {
                 stdin.write_all(b"uci\n").await.unwrap();
                 let reader = io::BufReader::new(stdout.borrow_mut());
                 let mut lines = reader.lines();
 
                 while let Some(line) = lines.next_line().await? {
                     if line.starts_with("uciok") {
-                        // tx.send(Message::Ready)?;
+                        let _ = uci_payload.response.send(true);
                         break;
                     }
                 }
