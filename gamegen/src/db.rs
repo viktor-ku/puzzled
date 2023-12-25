@@ -1,7 +1,7 @@
+use anyhow::{bail, Result};
 use shakmaty::Outcome;
 use sqlx::PgPool;
 use uuid::Uuid;
-use anyhow::{Result, bail};
 
 #[derive(Debug)]
 pub struct DbMove {
@@ -29,18 +29,44 @@ SELECT * FROM UNNEST($1::smallint[], $2::text[], $3::uuid[])
     Ok(())
 }
 
-pub async fn create_game(pool: &PgPool) -> Result<Uuid> {
-    let rec = sqlx::query!(
-        r#"
+pub async fn create_game(pool: &PgPool, outcome: Option<Outcome>) -> Result<Uuid> {
+    match outcome {
+        Some(outcome) => {
+            let winner = match outcome {
+                Outcome::Draw => 0,
+                Outcome::Decisive { winner } => match winner {
+                    shakmaty::Color::White => 1,
+                    shakmaty::Color::Black => -1,
+                },
+            };
+
+            let rec = sqlx::query!(
+                r#"
+INSERT INTO games (winner)
+VALUES ($1)
+RETURNING id
+        "#,
+                winner
+            )
+            .fetch_one(pool)
+            .await?;
+
+            Ok(rec.id)
+        }
+        None => {
+            let rec = sqlx::query!(
+                r#"
 INSERT INTO games (winner)
 VALUES (NULL)
 RETURNING id
         "#,
-    )
-    .fetch_one(pool)
-    .await?;
+            )
+            .fetch_one(pool)
+            .await?;
 
-    Ok(rec.id)
+            Ok(rec.id)
+        }
+    }
 }
 
 pub async fn set_winner(pool: &PgPool, game_id: Uuid, outcome: Option<Outcome>) -> Result<()> {

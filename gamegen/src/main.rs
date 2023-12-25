@@ -127,13 +127,10 @@ async fn find_best_move(
 
 async fn worker(pool: PgPool, tx: mpsc::Sender<StockfishCmd>) -> Result<()> {
     let mut chess = Chess::new();
-
-    let game_id = db::create_game(&pool).await?;
-
-    let depth: usize = 1;
-
     let mut moves = Vec::<db::DbMove>::with_capacity(256);
     let mut nr = 1;
+
+    let depth: usize = 1;
 
     while !chess.is_game_over() {
         let fen = Fen::from_position(chess.clone(), shakmaty::EnPassantMode::Legal);
@@ -151,8 +148,8 @@ async fn worker(pool: PgPool, tx: mpsc::Sender<StockfishCmd>) -> Result<()> {
         chess.play_unchecked(&m);
     }
 
+    let game_id = db::create_game(&pool, chess.outcome()).await?;
     db::save_moves(&pool, game_id, moves).await?;
-    db::set_winner(&pool, game_id, chess.outcome()).await?;
 
     Ok(())
 }
