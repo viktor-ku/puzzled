@@ -109,7 +109,7 @@ async fn stockfish(mut stockfish_rx: mpsc::Receiver<StockfishCmd>) -> Result<()>
 }
 
 async fn find_best_move(
-    tx: mpsc::Sender<StockfishCmd>,
+    tx: &mpsc::Sender<StockfishCmd>,
     fen: String,
     depth: usize,
 ) -> Result<BestMove> {
@@ -125,7 +125,7 @@ async fn find_best_move(
     Ok(response_rx.await?)
 }
 
-async fn worker(pool: PgPool, tx: mpsc::Sender<StockfishCmd>) -> Result<()> {
+async fn playout(pool: &PgPool, tx: &mpsc::Sender<StockfishCmd>) -> Result<()> {
     let mut chess = Chess::new();
     let mut moves = Vec::<db::DbMove>::with_capacity(256);
     let mut nr = 1;
@@ -134,7 +134,7 @@ async fn worker(pool: PgPool, tx: mpsc::Sender<StockfishCmd>) -> Result<()> {
 
     while !chess.is_game_over() {
         let fen = Fen::from_position(chess.clone(), shakmaty::EnPassantMode::Legal);
-        let best_move = find_best_move(tx.clone(), fen.to_string(), depth).await?;
+        let best_move = find_best_move(tx, fen.to_string(), depth).await?;
 
         let uci = best_move.best_move.parse::<Uci>()?;
         let m = uci.to_move(&chess)?;
@@ -145,13 +145,21 @@ async fn worker(pool: PgPool, tx: mpsc::Sender<StockfishCmd>) -> Result<()> {
         });
         nr += 1;
 
-        chess.play_unchecked(&m);
+        chess = chess.play(&m)?;
     }
+
+    println!("{}", chess.outcome().unwrap_or(shakmaty::Outcome::Draw).to_string());
 
     let game_id = db::create_game(&pool, chess.outcome()).await?;
     db::save_moves(&pool, game_id, moves).await?;
 
     Ok(())
+}
+
+async fn worker(pool: PgPool, tx: mpsc::Sender<StockfishCmd>) -> Result<()> {
+    loop {
+        playout(&pool, &tx).await?;
+    }
 }
 
 #[tokio::main]
@@ -166,9 +174,9 @@ async fn main() -> Result<()> {
 
     let stockfish_1 = tokio::spawn(stockfish(stockfish_rx));
 
-    let worker = tokio::spawn(worker(pool, stockfish_tx.clone()));
+    let worker = tokio::spawn(worker(pool, stockfish_tx));
 
-    let _ = tokio::join!(worker, stockfish_1);
+    let _ = tokio::join!(stockfish_1, worker);
 
     Ok(())
 }
