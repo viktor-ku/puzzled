@@ -132,20 +132,25 @@ async fn playout(pool: &PgPool, tx: &mpsc::Sender<StockfishCmd>) -> Result<()> {
 
     let depth: usize = 1;
 
-    while !chess.is_game_over() {
+    while !chess.is_game_over() && nr < 500 {
         let fen = Fen::from_position(chess.clone(), shakmaty::EnPassantMode::Legal);
         let best_move = find_best_move(tx, fen.to_string(), depth).await?;
 
         let uci = best_move.best_move.parse::<Uci>()?;
         let m = uci.to_move(&chess)?;
 
+        chess = chess.play(&m)?;
+
         moves.push(db::DbMove {
             nr,
             uci: uci.to_string(),
+            fen: Fen::from_position(chess.clone(), shakmaty::EnPassantMode::Legal).to_string(),
         });
         nr += 1;
+    }
 
-        chess = chess.play(&m)?;
+    if nr == 500 {
+        return Ok(())
     }
 
     println!("{}", chess.outcome().unwrap_or(shakmaty::Outcome::Draw).to_string());

@@ -7,21 +7,26 @@ use uuid::Uuid;
 pub struct DbMove {
     pub nr: i16,
     pub uci: String,
+
+    /// resulting FEN state of the game after the move happened
+    pub fen: String,
 }
 
 pub async fn save_moves(pool: &PgPool, game_id: Uuid, moves: Vec<DbMove>) -> Result<()> {
     let vec_nr: Vec<i16> = moves.iter().map(|x| x.nr).collect();
     let vec_uci: Vec<String> = moves.iter().map(|x| x.uci.to_string()).collect();
     let vec_game = [game_id].repeat(moves.len());
+    let vec_fen: Vec<String> = moves.iter().map(|x| x.fen.to_string()).collect();
 
     sqlx::query!(
         r#"
-INSERT INTO moves (nr, uci, game_id) 
-SELECT * FROM UNNEST($1::smallint[], $2::text[], $3::uuid[])
+INSERT INTO moves (nr, uci, game_id, fen)
+SELECT * FROM UNNEST($1::smallint[], $2::text[], $3::uuid[], $4::text[])
         "#,
         &vec_nr[..],
         &vec_uci[..],
         &vec_game[..],
+        &vec_fen[..],
     )
     .execute(pool)
     .await?;
